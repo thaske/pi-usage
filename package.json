@@ -1,0 +1,36 @@
+{
+	"name": "pi-usage",
+	"version": "0.1.0",
+	"description": "Unified statusline usage bars for pi coding providers (OpenAI Codex, Z.ai)",
+	"type": "module",
+	"license": "MIT",
+	"author": "Evan",
+	"keywords": [
+		"pi-package",
+		"pi",
+		"coding-agent",
+		"usage",
+		"codex",
+		"zai",
+		"statusline"
+	],
+	"scripts": {
+		"test": "bun test",
+		"typecheck": "tsc --noEmit",
+		"check": "bun run typecheck && bun run test",
+		"pi:load-check": "pi --no-extensions -e ./src/index.ts --list-models __pi_usage_load_check__"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": "*",
+		"@earendil-works/pi-tui": "*"
+	},
+	"devDependencies": {
+		"@types/bun": "^1.2.0",
+		"typescript": "^5.8.0"
+	},
+	"pi": {
+		"extensions": [
+			"src/index.ts"
+		]
+	}
+}
