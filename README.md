@@ -4,7 +4,9 @@
 zai(lite) ████████▀▀ 6.8d
 ```
 
-Unified statusline usage bars for [pi](https://pi.dev) for providers that offer a coding plan. Shows the active model's quota as a braille bar with reset-countdown annotations.
+Usage bars for providers that offer a coding plan.
+
+Shows the active model's quota as a bar with reset-countdown.
 
 ## Providers
 
