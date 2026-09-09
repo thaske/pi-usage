@@ -46,18 +46,10 @@ function filledParts(usedPercent: number | undefined, totalParts: number): numbe
 	return Math.max(1, Math.round(remaining / (100 / totalParts)));
 }
 
-/** 10-cell single-window bar (4 braille steps per cell, 40 parts total). */
+/** 10-cell single-window bar. Plain blocks keep it visually one-dimensional. */
 export function formatSingleBar(usedPercent: number | undefined): string {
-	const filled = filledParts(usedPercent, SINGLE_BAR_PARTS);
-	const partMasks = [1, 4, 2, 8];
-	let value = "";
-	for (let index = 0; index < DUAL_BAR_WIDTH; index++) {
-		const cellParts = Math.min(4, Math.max(0, filled - index * 4));
-		let mask = 0;
-		for (let part = 0; part < cellParts; part++) mask |= partMasks[part] ?? 0;
-		value += DUAL_BAR_CHARS[mask];
-	}
-	return value;
+	const filled = filledParts(usedPercent, DUAL_BAR_WIDTH);
+	return `${"█".repeat(filled)}${"░".repeat(DUAL_BAR_WIDTH - filled)}`;
 }
 
 /** 10-cell dual-window bar: left halves = primary, right halves = secondary. */

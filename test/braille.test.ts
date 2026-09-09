@@ -36,7 +36,7 @@ describe("formatDualBar", () => {
 
 describe("formatSingleBar", () => {
 	test("empty bar at 100% used", () => {
-		expect(formatSingleBar(100)).toBe("⠀".repeat(DUAL_BAR_WIDTH));
+		expect(formatSingleBar(100)).toBe("░".repeat(DUAL_BAR_WIDTH));
 	});
 
 	test("full bar at 0% used", () => {
@@ -44,12 +44,11 @@ describe("formatSingleBar", () => {
 	});
 
 	test("half used fills half the cells", () => {
-		expect(formatSingleBar(50)).toBe("█████⠀⠀⠀⠀⠀");
+		expect(formatSingleBar(50)).toBe("█████░░░░░");
 	});
 
-	test("97% used renders a single part in the first cell", () => {
-		// remaining 3% -> round(1.2) = 1 part -> bit 1 (▘) on cell 0
-		expect(formatSingleBar(97)).toBe(`▘${"⠀".repeat(9)}`);
+	test("97% used renders one filled cell", () => {
+		expect(formatSingleBar(97)).toBe(`█${"░".repeat(9)}`);
 	});
 });
 

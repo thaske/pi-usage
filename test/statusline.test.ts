@@ -64,13 +64,13 @@ describe("formatStatusValue", () => {
 		expect(value?.endsWith("1.5h")).toBe(true);
 	});
 
-	test("single window renders a Braille bar plus countdown", () => {
+	test("single window renders a one-dimensional bar, percentage, and countdown", () => {
 		const now = 1000;
 		const value = formatStatusValue(
 			{ limitId: "x", primary: { usedPercent: 42, resetAt: now + 90 * MINUTE_MS } },
 			now,
 		);
-		expect(value).toBe(`█████▛${"⠀".repeat(4)} 1.5h`);
+		expect(value).toBe("██████░░░░ 58% 1.5h");
 	});
 
 	test("returns undefined without windows", () => {

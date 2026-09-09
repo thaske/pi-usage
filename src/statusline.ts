@@ -62,8 +62,9 @@ export function formatStatusValue(
 		const window = snapshot.primary ?? snapshot.secondary;
 		if (!window) return undefined;
 		const bar = formatAdaptiveBar(window.usedPercent, undefined);
+		const percentage = `${Math.round(remainingPercent(window.usedPercent))}%`;
 		const countdown = window.resetAt ? formatResetCountdown(window.resetAt, now) : undefined;
-		return countdown ? `${bar} ${countdown}` : bar;
+		return countdown ? `${bar} ${percentage} ${countdown}` : `${bar} ${percentage}`;
 	}
 
 	const bar = formatAdaptiveBar(snapshot.primary.usedPercent, snapshot.secondary.usedPercent);
@@ -93,10 +94,11 @@ export function formatStatusline(
 	if (!snapshot?.primary && !snapshot?.secondary) {
 		return `${label} ${theme.fg("dim", value)}`;
 	}
-	const [bar = "", countdown] = value.split(" ", 2);
+	const parts = value.split(" ");
+	const [bar = "", ...annotations] = parts;
 	const background = snapshotExhausted(snapshot) ? "toolErrorBg" : "selectedBg";
 	const barText = `${label} ${theme.bg(background, theme.fg("dim", bar))}`;
-	return countdown ? `${barText} ${theme.fg("dim", countdown)}` : barText;
+	return annotations.length > 0 ? `${barText} ${theme.fg("dim", annotations.join(" "))}` : barText;
 }
 
 export function formatLoadingStatusline(
