@@ -15,6 +15,10 @@ Shows the active model's quota as a bar with reset-countdown.
 | OpenAI Codex | `openai-codex` | 5h (primary) + weekly (secondary); separate `spark` bucket |
 | Z.ai         | `zai`          | 5h credits (primary) + weekly credits (secondary)          |
 
+When OpenAI exposes only one Codex window (for example, a Pro account with
+weekly-only limits), pi-usage renders a single-row Braille bar and labels the
+window `weekly` instead of assuming that `primary` means 5h.
+
 ## Install
 
 ```bash

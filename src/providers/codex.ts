@@ -37,6 +37,7 @@ type BackendRateLimitDetails = {
 
 type BackendWindowSnapshot = {
 	used_percent?: unknown;
+	limit_window_seconds?: unknown;
 	reset_at?: unknown;
 	resets_at?: unknown;
 	reset_time?: unknown;
@@ -60,6 +61,7 @@ type AppServerRateLimitSnapshot = {
 
 type AppServerWindowSnapshot = {
 	usedPercent?: unknown;
+	windowDurationMins?: unknown;
 	resetAt?: unknown;
 	resetsAt?: unknown;
 	resetTime?: unknown;
@@ -250,7 +252,23 @@ function normalizeBackendWindow(value: unknown, capturedAt: number): UsageWindow
 		window.reset_after_seconds,
 		capturedAt,
 	);
-	return resetAt === undefined ? { usedPercent } : { usedPercent, resetAt };
+	const windowDurationSeconds = asNumber(window.limit_window_seconds);
+	const metadata = codexWindowMetadata(windowDurationSeconds);
+	return {
+		usedPercent,
+		...(resetAt === undefined ? {} : { resetAt }),
+		...metadata,
+	};
+}
+
+function codexWindowMetadata(windowDurationSeconds: number | undefined): Pick<UsageWindow, "windowDurationSeconds" | "windowLabel"> {
+	if (windowDurationSeconds === undefined) return {};
+	const windowLabel = windowDurationSeconds === 5 * 60 * 60
+		? "5h"
+		: windowDurationSeconds === 7 * 24 * 60 * 60
+			? "weekly"
+			: undefined;
+	return { windowDurationSeconds, ...(windowLabel ? { windowLabel } : {}) };
 }
 
 export function normalizeAppServerResponse(payload: Record<string, unknown>, capturedAt: number): UsageReport {
@@ -314,7 +332,15 @@ function normalizeAppServerWindow(value: unknown, capturedAt: number): UsageWind
 		window.resetAfterSeconds,
 		capturedAt,
 	);
-	return resetAt === undefined ? { usedPercent } : { usedPercent, resetAt };
+	const windowDurationSeconds = asNumber(window.windowDurationMins);
+	const metadata = codexWindowMetadata(
+		windowDurationSeconds === undefined ? undefined : windowDurationSeconds * 60,
+	);
+	return {
+		usedPercent,
+		...(resetAt === undefined ? {} : { resetAt }),
+		...metadata,
+	};
 }
 
 type RpcResponse = {

@@ -73,16 +73,35 @@ describe("normalizeBackendPayload", () => {
 		const report = normalizeBackendPayload(
 			{
 				rate_limit: {
-					primary_window: { used_percent: 42, reset_after_seconds: 3600 },
-					secondary_window: { used_percent: 7, resets_at: capturedAt + 60_000 },
+					primary_window: { used_percent: 42, reset_after_seconds: 3600, limit_window_seconds: 18_000 },
+					secondary_window: { used_percent: 7, resets_at: capturedAt + 60_000, limit_window_seconds: 604_800 },
 				},
 			},
 			capturedAt,
 		);
 		expect(report.snapshots).toHaveLength(1);
 		expect(report.snapshots[0]?.limitId).toBe("codex");
-		expect(report.snapshots[0]?.primary).toEqual({ usedPercent: 42, resetAt: capturedAt + 3_600_000 });
-		expect(report.snapshots[0]?.secondary).toEqual({ usedPercent: 7, resetAt: capturedAt + 60_000 });
+		expect(report.snapshots[0]?.primary).toEqual({
+			usedPercent: 42,
+			resetAt: capturedAt + 3_600_000,
+			windowDurationSeconds: 18_000,
+			windowLabel: "5h",
+		});
+		expect(report.snapshots[0]?.secondary).toEqual({
+			usedPercent: 7,
+			resetAt: capturedAt + 60_000,
+			windowDurationSeconds: 604_800,
+			windowLabel: "weekly",
+		});
+	});
+
+	test("labels a weekly-only primary window correctly", () => {
+		const report = normalizeBackendPayload(
+			{ rate_limit: { primary_window: { used_percent: 22, limit_window_seconds: 604_800 } } },
+			Date.now(),
+		);
+		expect(report.snapshots[0]?.primary?.windowLabel).toBe("weekly");
+		expect(report.snapshots[0]?.secondary).toBeUndefined();
 	});
 
 	test("throws when no displayable windows exist", () => {
@@ -98,8 +117,8 @@ describe("normalizeAppServerResponse", () => {
 				rateLimits: [
 					{
 						limitId: "codex",
-						primary: { usedPercent: 88, resetAt: capturedAt + 1000 },
-						secondary: { usedPercent: 12 },
+						primary: { usedPercent: 88, resetAt: capturedAt + 1000, windowDurationMins: 300 },
+						secondary: { usedPercent: 12, windowDurationMins: 10080 },
 					},
 				],
 			},

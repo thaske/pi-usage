@@ -6,7 +6,8 @@
  *   displayed window is exhausted
  * - dim countdown annotation for the long window; when the short window is
  *   exhausted, "shortCountdown/longCountdown"
- * - single-window snapshots degrade to "42% 3.2h" text without a background
+ * - single-window snapshots use a single-row Braille bar and retain the reset countdown
+
  */
 
 import {
@@ -37,7 +38,11 @@ export function statusLabel(
 ): string {
 	const base = provider.label();
 	const level = snapshot?.meta?.level;
-	return level ? `${base}(${level})` : base;
+	const window = snapshot && (!snapshot.primary || !snapshot.secondary)
+		? snapshot.primary ?? snapshot.secondary
+		: undefined;
+	const suffix = level ?? window?.windowLabel;
+	return suffix ? `${base}(${suffix})` : base;
 }
 
 /** The bare bar (no label/annotation), used for blink-on-change detection. */
@@ -56,9 +61,9 @@ export function formatStatusValue(
 	if (!snapshot.primary || !snapshot.secondary) {
 		const window = snapshot.primary ?? snapshot.secondary;
 		if (!window) return undefined;
-		const percentage = `${Math.round(remainingPercent(window.usedPercent))}%`;
+		const bar = formatAdaptiveBar(window.usedPercent, undefined);
 		const countdown = window.resetAt ? formatResetCountdown(window.resetAt, now) : undefined;
-		return countdown ? `${percentage} ${countdown}` : percentage;
+		return countdown ? `${bar} ${countdown}` : bar;
 	}
 
 	const bar = formatAdaptiveBar(snapshot.primary.usedPercent, snapshot.secondary.usedPercent);
@@ -85,7 +90,7 @@ export function formatStatusline(
 ): string {
 	const label = theme.fg("accent", statusLabel(provider, snapshot));
 	const value = formatStatusValue(snapshot, now) ?? "n/a";
-	if (!snapshot?.primary || !snapshot.secondary) {
+	if (!snapshot?.primary && !snapshot?.secondary) {
 		return `${label} ${theme.fg("dim", value)}`;
 	}
 	const [bar = "", countdown] = value.split(" ", 2);

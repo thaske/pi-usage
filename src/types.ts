@@ -22,6 +22,10 @@ export type UsageWindow = {
 	usedPercent: number;
 	/** Epoch ms when the window resets, when the provider reports it. */
 	resetAt?: number;
+	/** Duration of the quota window, when the provider reports it. */
+	windowDurationSeconds?: number;
+	/** Provider-normalized label for a single displayed window. */
+	windowLabel?: string;
 };
 
 export type UsageSnapshot = {

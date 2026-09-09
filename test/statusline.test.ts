@@ -64,13 +64,13 @@ describe("formatStatusValue", () => {
 		expect(value?.endsWith("1.5h")).toBe(true);
 	});
 
-	test("single window degrades to percentage plus countdown", () => {
+	test("single window renders a Braille bar plus countdown", () => {
 		const now = 1000;
 		const value = formatStatusValue(
 			{ limitId: "x", primary: { usedPercent: 42, resetAt: now + 90 * MINUTE_MS } },
 			now,
 		);
-		expect(value).toBe("58% 1.5h");
+		expect(value).toBe(`█████▛${"⠀".repeat(4)} 1.5h`);
 	});
 
 	test("returns undefined without windows", () => {
@@ -87,6 +87,15 @@ describe("formatStatusline", () => {
 
 	test("codex label has no suffix", () => {
 		expect(statusLabel(codexProvider, undefined)).toBe("codex");
+	});
+
+	test("single weekly window is labeled weekly", () => {
+		expect(
+			statusLabel(codexProvider, {
+				limitId: "codex",
+				primary: { usedPercent: 22, windowLabel: "weekly" },
+			}),
+		).toBe("codex(weekly)");
 	});
 
 	test("falls back to n/a without a snapshot", () => {
