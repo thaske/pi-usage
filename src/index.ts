@@ -15,6 +15,16 @@ import { codexProvider } from "./providers/codex";
 import { opencodeGoProvider } from "./providers/opencodeGo";
 import { zaiProvider } from "./providers/zai";
 import {
+	QUOTA_PROVIDERS_CHANNEL,
+	QUOTA_PROVIDERS_REQUEST_CHANNEL,
+	QUOTA_REQUEST_CHANNEL,
+	QUOTA_RESPONSE_CHANNEL,
+	isQuotaExhausted,
+	parseQuotaStatusRequest,
+	type QuotaStatusResponse,
+} from "./quota";
+import { errorMessage } from "./util";
+import {
 	formatBar,
 	formatLoadingStatusline,
 	formatProblemStatusline,
@@ -116,6 +126,9 @@ export default function piUsage(pi: ExtensionAPI) {
 	let statuslineLoadingProviderId: string | undefined;
 	let statuslineRequestId = 0;
 	let provisionalFullReport: { providerId: string; firstSeenAt: number } | undefined;
+	// Latest context handed to one of our handlers. Bus handlers receive no ctx,
+	// and provider queries need modelRegistry auth, so we remember the current one.
+	let latestCtx: ExtensionContext | undefined;
 
 	const clearStatuslineTimers = () => {
 		if (statuslineBlinkTimer) clearTimeout(statuslineBlinkTimer);
@@ -362,9 +375,86 @@ export default function piUsage(pi: ExtensionAPI) {
 		}
 	}
 
+	const announceQuotaProviders = () => {
+		pi.events.emit(QUOTA_PROVIDERS_CHANNEL, {
+			providers: PROVIDERS.map((provider) => provider.id),
+		});
+	};
+
+	// A consumer that loaded before us never saw a factory-time announcement, so
+	// answer its request explicitly. Our own session_start announcement covers
+	// the opposite load order, and every factory finishes before session_start.
+	pi.events.on(QUOTA_PROVIDERS_REQUEST_CHANNEL, () => {
+		announceQuotaProviders();
+	});
+
+	pi.events.on(QUOTA_REQUEST_CHANNEL, (raw) => {
+		void respondToQuotaRequest(raw);
+	});
+
+	async function respondToQuotaRequest(raw: unknown): Promise<void> {
+		const request = parseQuotaStatusRequest(raw);
+		if (!request) return;
+		const respond = (response: QuotaStatusResponse) => {
+			pi.events.emit(QUOTA_RESPONSE_CHANNEL, response);
+		};
+		const provider = PROVIDERS.find((candidate) => candidate.id === request.provider);
+		if (!provider) {
+			respond({
+				requestId: request.requestId,
+				ok: false,
+				provider: request.provider,
+				error: `No usage provider matches ${request.provider}.`,
+			});
+			return;
+		}
+		const ctx = latestCtx;
+		if (!ctx) {
+			respond({
+				requestId: request.requestId,
+				ok: false,
+				provider: request.provider,
+				error: "No active pi session context is available for a quota query.",
+			});
+			return;
+		}
+		try {
+			const model = request.model ?? (ctx.model as ProviderModel | undefined);
+			// Reuse the statusline's in-flight query so a concurrent refresh does
+			// not spawn a second provider request (for example codex app-server).
+			const result = await queryCurrentUsage(ctx, provider, model);
+			if (!result.ok) {
+				respond({
+					requestId: request.requestId,
+					ok: false,
+					provider: request.provider,
+					error: result.errors.map((error) => error.message).join("; "),
+				});
+				return;
+			}
+			respond({
+				requestId: request.requestId,
+				ok: true,
+				provider: request.provider,
+				label: provider.label(model),
+				exhausted: isQuotaExhausted(provider, result.report, model),
+			});
+		} catch (cause) {
+			// A stale ctx or provider failure must still produce a response, or
+			// the caller waits for its timeout.
+			respond({
+				requestId: request.requestId,
+				ok: false,
+				provider: request.provider,
+				error: errorMessage(cause),
+			});
+		}
+	}
+
 	pi.registerCommand("usage", {
 		description: "Show current coding-provider usage quota",
 		handler: async (_args, ctx) => {
+			latestCtx = ctx;
 			const model = ctx.model as ProviderModel | undefined;
 			const provider = activeProvider(model);
 			if (!provider) {
@@ -401,6 +491,8 @@ export default function piUsage(pi: ExtensionAPI) {
 	});
 
 	pi.on("session_start", (_event, ctx) => {
+		latestCtx = ctx;
+		announceQuotaProviders();
 		if (isActiveModel(ctx.model as ProviderModel | undefined)) {
 			void refreshCurrentUsageStatusline(ctx, false).catch(handleAsyncTimerError);
 		} else {
@@ -409,6 +501,7 @@ export default function piUsage(pi: ExtensionAPI) {
 	});
 
 	pi.on("session_tree", (_event, ctx) => {
+		latestCtx = ctx;
 		if (isActiveModel(ctx.model as ProviderModel | undefined)) {
 			void refreshCurrentUsageStatusline(ctx, false).catch(handleAsyncTimerError);
 		} else {
@@ -417,6 +510,7 @@ export default function piUsage(pi: ExtensionAPI) {
 	});
 
 	pi.on("model_select", (event, ctx) => {
+		latestCtx = ctx;
 		if (isActiveModel(event.model as ProviderModel | undefined)) {
 			void refreshCurrentUsageStatusline(ctx, false, event.model as ProviderModel).catch(
 				handleAsyncTimerError,

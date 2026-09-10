@@ -34,6 +34,33 @@ pi install git:github.com/thaske/pi-usage
 
 - `/usage` — query the active provider on demand and show every window with absolute reset times.
 
+## Extension integration
+
+pi-usage owns all provider-specific quota knowledge and exposes it to other extensions over pi's shared `pi.events` bus. Consumers (for example `pi-goal`) never reimplement provider endpoints or auth.
+
+| Channel | Direction | Payload |
+| --- | --- | --- |
+| `pi-usage:quota:providers` | pi-usage → `*` | `{ providers: string[] }` |
+| `pi-usage:quota:providers:request` | consumer → pi-usage | `{}` |
+| `pi-usage:quota:request` | consumer → pi-usage | `{ requestId, provider, model?: { provider, id, name? } }` |
+| `pi-usage:quota:response` | pi-usage → consumer | `{ requestId, ok: true, provider, label, exhausted }` or `{ requestId, ok: false, provider, error }` |
+
+A request that matches no registered provider, has no active session context, or fails its query is answered with `ok: false`; pi-usage always replies on every path so a consumer never waits for its timeout unnecessarily.
+
+```ts
+pi.events.on("pi-usage:quota:providers", (event) => providers = event.providers);
+pi.events.emit("pi-usage:quota:providers:request", {});
+
+const requestId = crypto.randomUUID();
+pi.events.on("pi-usage:quota:response", (response) => {
+  if (response.requestId !== requestId || !response.ok) return;
+  if (response.exhausted) pauseWork();
+});
+pi.events.emit("pi-usage:quota:request", { requestId, provider: "opencode-go" });
+```
+
+`exhausted` is true when any window of the active provider bucket (5h, weekly, or OpenCode Go monthly) has consumed 100% of its quota.
+
 ## Development
 
 ```bash
