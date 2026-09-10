@@ -12,6 +12,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { formatLoadingBar } from "./braille";
 import { nextResetCountdownDelayForRemainingMs } from "./countdown";
 import { codexProvider } from "./providers/codex";
+import { opencodeGoProvider } from "./providers/opencodeGo";
 import { zaiProvider } from "./providers/zai";
 import {
 	formatBar,
@@ -27,7 +28,7 @@ import type {
 	UsageReport,
 } from "./types";
 
-const PROVIDERS: UsageProvider[] = [codexProvider, zaiProvider];
+const PROVIDERS: UsageProvider[] = [codexProvider, opencodeGoProvider, zaiProvider];
 
 const STATUS_KEY = "pi-usage";
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -382,14 +383,19 @@ export default function piUsage(pi: ExtensionAPI) {
 				return;
 			}
 			const lines: string[] = [`${provider.label(model)}${snapshot.meta?.level ? ` (${snapshot.meta.level})` : ""}`];
-			const describe = (name: string, window: { usedPercent: number; resetAt?: number } | undefined) => {
+			const describe = (
+				fallbackName: string,
+				window: { usedPercent: number; resetAt?: number; windowLabel?: string } | undefined,
+			) => {
 				if (!window) return;
+				const name = window.windowLabel ?? fallbackName;
 				const used = `${Math.round(window.usedPercent)}% used`;
 				const reset = window.resetAt ? `, resets ${new Date(window.resetAt).toLocaleString()}` : "";
 				lines.push(`  ${name}: ${used}${reset}`);
 			};
 			describe("5h", snapshot.primary);
 			describe("weekly", snapshot.secondary);
+			describe("monthly", snapshot.tertiary);
 			ctx.ui.notify(lines.join("\n"), "info");
 		},
 	});

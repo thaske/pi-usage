@@ -8,6 +8,8 @@
  * Window semantics (matching the Codex usage convention):
  * - `primary`   short rolling window (Codex 5h, Z.ai 5h)
  * - `secondary` long window          (Codex weekly, Z.ai weekly)
+ * - `tertiary`  optional third window (OpenCode Go monthly). The statusline
+ *   renders only primary/secondary; `tertiary` is surfaced by `/usage`.
  * - `usedPercent` is how much of the quota is consumed (0–100). Bars render
  *   the REMAINING share, exactly like the Codex usage extension.
  */
@@ -33,6 +35,8 @@ export type UsageSnapshot = {
 	limitId: string;
 	primary?: UsageWindow;
 	secondary?: UsageWindow;
+	/** Additional window shown only by `/usage`; ignored by the statusline. */
+	tertiary?: UsageWindow;
 	/** Free-form provider annotations surfaced in the statusline label. */
 	meta?: Record<string, string | undefined>;
 };

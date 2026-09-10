@@ -13,7 +13,12 @@ Shows the active model's quota as a bar with reset-countdown.
 | Provider     | Model match    | Windows                                                    |
 | ------------ | -------------- | ---------------------------------------------------------- |
 | OpenAI Codex | `openai-codex` | 5h (primary) + weekly (secondary); separate `spark` bucket |
+| OpenCode Go  | `opencode-go`  | 5h rolling (primary) + weekly (secondary); monthly in `/usage` |
 | Z.ai         | `zai`          | 5h credits (primary) + weekly credits (secondary)          |
+
+OpenCode Go's plan meters three nested dollar budgets (5h rolling, weekly,
+monthly). The statusline renders the first two as a dual bar and `/usage`
+reports all three, including the monthly window.
 
 When OpenAI exposes only one Codex window (for example, a Pro account with
 weekly-only limits), pi-usage renders a single-row Braille bar and labels the

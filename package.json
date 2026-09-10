@@ -1,7 +1,7 @@
 {
 	"name": "pi-usage",
 	"version": "0.1.0",
-	"description": "Unified statusline usage bars for pi coding providers (OpenAI Codex, Z.ai)",
+	"description": "Unified statusline usage bars for pi coding providers (OpenAI Codex, OpenCode Go, Z.ai)",
 	"type": "module",
 	"license": "MIT",
 	"author": "Evan",
@@ -11,6 +11,7 @@
 		"coding-agent",
 		"usage",
 		"codex",
+		"opencode-go",
 		"zai",
 		"statusline"
 	],

@@ -133,6 +133,7 @@ function isUnavailableError(error: UsageQueryError): boolean {
 	return (
 		message.includes("no pi openai codex subscription auth") ||
 		message.includes("no z.ai api key was available") ||
+		message.includes("no opencode api key was available") ||
 		message.includes("no displayable") ||
 		message.includes("returned no displayable") ||
 		message.includes("returned 401") ||
