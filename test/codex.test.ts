@@ -7,18 +7,33 @@ import {
 } from "../src/providers/codex";
 
 const regularCodex = { provider: "openai-codex", id: "gpt-5.2-codex", name: "GPT-5.2-Codex" };
+const nativeModel = { provider: "openai", id: "gpt-6-luna", name: "GPT-6-Luna" };
+const nativeCodex = { provider: "openai", id: "gpt-5.3-codex", name: "GPT-5.3-Codex" };
 const sparkCodex = { provider: "openai-codex", id: "gpt-5.3-codex-spark", name: "GPT-5.3-Codex-Spark" };
+const nativeSpark = { provider: "openai", id: "gpt-5.3-codex-spark", name: "GPT-5.3-Codex-Spark" };
+const nativeOAuthContext = { modelRegistry: { isUsingOAuth: (model: { provider: string }) => model.provider === "openai" } };
+const nativeApiKeyContext = { modelRegistry: { isUsingOAuth: () => false } };
 
 describe("codexProvider", () => {
-	test("matches only openai-codex models", () => {
+	test("matches every native openai model only with ChatGPT OAuth", () => {
 		expect(codexProvider.matchesModel(regularCodex)).toBe(true);
+		expect(codexProvider.matchesModel(nativeCodex, nativeOAuthContext)).toBe(true);
+		expect(codexProvider.matchesModel(nativeModel, nativeOAuthContext)).toBe(true);
+		expect(codexProvider.matchesModel(nativeModel, nativeApiKeyContext)).toBe(false);
 		expect(codexProvider.matchesModel({ provider: "zai", id: "glm-4.7" })).toBe(false);
 		expect(codexProvider.matchesModel(undefined)).toBe(false);
 	});
 
+	test("does not query ChatGPT usage for native OpenAI API-key auth", async () => {
+		await expect(codexProvider.query({ model: nativeModel, ...nativeApiKeyContext }, nativeModel, 1000))
+			.rejects.toThrow("ChatGPT OAuth");
+	});
+
 	test("labels spark models distinctly and selects their bucket", () => {
 		expect(isSparkCodexModel(sparkCodex)).toBe(true);
+		expect(isSparkCodexModel(nativeSpark)).toBe(true);
 		expect(codexProvider.label(sparkCodex)).toBe("spark");
+		expect(codexProvider.label(nativeSpark)).toBe("spark");
 		expect(codexProvider.label(regularCodex)).toBe("codex");
 
 		const report = normalizeBackendPayload(
@@ -36,6 +51,7 @@ describe("codexProvider", () => {
 		);
 		expect(codexProvider.selectSnapshot(report, regularCodex)?.primary?.usedPercent).toBe(10);
 		expect(codexProvider.selectSnapshot(report, sparkCodex)?.primary?.usedPercent).toBe(100);
+		expect(codexProvider.selectSnapshot(report, nativeSpark)?.primary?.usedPercent).toBe(100);
 	});
 
 	test("query uses pi-auth when the backend responds", async () => {
@@ -143,6 +159,22 @@ describe("normalizeAppServerResponse", () => {
 		expect(report.snapshots).toHaveLength(1);
 		expect(report.snapshots[0]?.primary?.usedPercent).toBe(10);
 		expect(report.snapshots[0]?.secondary?.usedPercent).toBe(20);
+	});
+
+	test("normalizes app-server rateLimitsByLimitId buckets", () => {
+		const report = normalizeAppServerResponse(
+			{
+				rateLimits: { limitId: "codex", primary: { usedPercent: 5 } },
+				rateLimitsByLimitId: {
+					codex: { limitId: "codex", primary: { usedPercent: 45 } },
+					spark: { limitId: "spark", primary: { usedPercent: 80 } },
+				},
+			},
+			Date.now(),
+		);
+		expect(report.snapshots).toHaveLength(2);
+		expect(codexProvider.selectSnapshot(report, nativeCodex)?.primary?.usedPercent).toBe(45);
+		expect(codexProvider.selectSnapshot(report, nativeSpark)?.primary?.usedPercent).toBe(80);
 	});
 
 	test("throws when the response has no windows", () => {

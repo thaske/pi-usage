@@ -58,12 +58,15 @@ type CachedReport = {
 	report: UsageReport;
 };
 
-function activeProvider(model: ProviderModel | undefined): UsageProvider | undefined {
-	return PROVIDERS.find((provider) => provider.matchesModel(model));
+function activeProvider(
+	model: ProviderModel | undefined,
+	ctx?: ExtensionContext,
+): UsageProvider | undefined {
+	return PROVIDERS.find((provider) => provider.matchesModel(model, ctx));
 }
 
-function isActiveModel(model: ProviderModel | undefined): boolean {
-	return activeProvider(model) !== undefined;
+function isActiveModel(model: ProviderModel | undefined, ctx?: ExtensionContext): boolean {
+	return activeProvider(model, ctx) !== undefined;
 }
 
 function isStaleExtensionContextError(error: unknown): boolean {
@@ -213,7 +216,7 @@ export default function piUsage(pi: ExtensionAPI) {
 		}
 		statuslineCountdownTimer = setTimeout(() => {
 			try {
-				if (provider.matchesModel(ctx.model as ProviderModel | undefined)) {
+				if (provider.matchesModel(ctx.model as ProviderModel | undefined, ctx)) {
 					const snapshot = provider.selectSnapshot(report, model);
 					ctx.ui.setStatus(STATUS_KEY, formatStatusline(ctx.ui.theme, provider, snapshot));
 					scheduleStatuslineCountdown(ctx, provider, report, model);
@@ -281,7 +284,7 @@ export default function piUsage(pi: ExtensionAPI) {
 	) => {
 		try {
 			const model = modelOverride ?? (ctx.model as ProviderModel | undefined);
-			const provider = activeProvider(model);
+			const provider = activeProvider(model, ctx);
 			if (!provider) {
 				clearUsageStatusline(ctx);
 				return;
@@ -307,7 +310,7 @@ export default function piUsage(pi: ExtensionAPI) {
 
 			const result = await queryCurrentUsage(ctx, provider, model);
 			if (requestId !== statuslineRequestId) return;
-			if (!provider.matchesModel(ctx.model as ProviderModel | undefined)) {
+			if (!provider.matchesModel(ctx.model as ProviderModel | undefined, ctx)) {
 				clearUsageStatusline(ctx);
 				return;
 			}
@@ -456,9 +459,12 @@ export default function piUsage(pi: ExtensionAPI) {
 		handler: async (_args, ctx) => {
 			latestCtx = ctx;
 			const model = ctx.model as ProviderModel | undefined;
-			const provider = activeProvider(model);
+			const provider = activeProvider(model, ctx);
 			if (!provider) {
-				ctx.ui.notify("No usage provider matches the active model.", "info");
+				const message = model?.provider === "openai"
+					? "Native OpenAI subscription usage requires Pi's ChatGPT OAuth sign-in; API-key auth does not expose ChatGPT quota windows."
+					: "No usage provider matches the active model.";
+				ctx.ui.notify(message, "info");
 				return;
 			}
 			ctx.ui.notify(`Querying ${provider.label(model)} usage…`, "info");
@@ -493,7 +499,7 @@ export default function piUsage(pi: ExtensionAPI) {
 	pi.on("session_start", (_event, ctx) => {
 		latestCtx = ctx;
 		announceQuotaProviders();
-		if (isActiveModel(ctx.model as ProviderModel | undefined)) {
+		if (isActiveModel(ctx.model as ProviderModel | undefined, ctx)) {
 			void refreshCurrentUsageStatusline(ctx, false).catch(handleAsyncTimerError);
 		} else {
 			clearUsageStatusline(ctx);
@@ -502,7 +508,7 @@ export default function piUsage(pi: ExtensionAPI) {
 
 	pi.on("session_tree", (_event, ctx) => {
 		latestCtx = ctx;
-		if (isActiveModel(ctx.model as ProviderModel | undefined)) {
+		if (isActiveModel(ctx.model as ProviderModel | undefined, ctx)) {
 			void refreshCurrentUsageStatusline(ctx, false).catch(handleAsyncTimerError);
 		} else {
 			clearUsageStatusline(ctx);
@@ -511,7 +517,7 @@ export default function piUsage(pi: ExtensionAPI) {
 
 	pi.on("model_select", (event, ctx) => {
 		latestCtx = ctx;
-		if (isActiveModel(event.model as ProviderModel | undefined)) {
+		if (isActiveModel(event.model as ProviderModel | undefined, ctx)) {
 			void refreshCurrentUsageStatusline(ctx, false, event.model as ProviderModel).catch(
 				handleAsyncTimerError,
 			);

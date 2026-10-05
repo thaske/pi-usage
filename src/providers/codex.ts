@@ -22,6 +22,7 @@ import type {
 } from "../types";
 
 const CODEX_PROVIDER_ID = "openai-codex";
+const OPENAI_PROVIDER_ID = "openai";
 const CODEX_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
 const CODEX_USAGE_LIMIT_ID = "codex";
 const SPARK_USAGE_LIMIT_ID = "spark";
@@ -71,10 +72,22 @@ type AppServerWindowSnapshot = {
 	resetAfterSeconds?: unknown;
 };
 
+function isNativeOpenAIModel(
+	model: Pick<ProviderModel, "id" | "name" | "provider"> | undefined,
+): boolean {
+	return model?.provider === OPENAI_PROVIDER_ID;
+}
+
+function isCodexUsageModel(
+	model: Pick<ProviderModel, "id" | "name" | "provider"> | undefined,
+): boolean {
+	return model?.provider === CODEX_PROVIDER_ID || isNativeOpenAIModel(model);
+}
+
 export function isSparkCodexModel(
 	model: Pick<ProviderModel, "id" | "name" | "provider"> | undefined,
 ): boolean {
-	if (model?.provider !== CODEX_PROVIDER_ID) return false;
+	if (!isCodexUsageModel(model)) return false;
 	const key = `${model?.id ?? ""} ${model?.name ?? ""}`.toLowerCase();
 	return key.includes(SPARK_MODEL_KEY);
 }
@@ -82,7 +95,9 @@ export function isSparkCodexModel(
 export const codexProvider: UsageProvider = {
 	id: CODEX_PROVIDER_ID,
 	label: (model) => (isSparkCodexModel(model) ? SPARK_USAGE_LIMIT_ID : CODEX_USAGE_LIMIT_ID),
-	matchesModel: (model) => model?.provider === CODEX_PROVIDER_ID,
+	matchesModel: (model, context) =>
+		model?.provider === CODEX_PROVIDER_ID ||
+		(isNativeOpenAIModel(model) && context?.modelRegistry.isUsingOAuth?.(model) === true),
 	selectSnapshot: (report, model) =>
 		report.snapshots.find(
 			(snapshot) =>
@@ -90,10 +105,19 @@ export const codexProvider: UsageProvider = {
 				normalizedUsageKey(isSparkCodexModel(model) ? SPARK_USAGE_LIMIT_ID : CODEX_USAGE_LIMIT_ID),
 		),
 	query: async (ctx, model, timeoutMs) => {
+		const selectedModel = model ?? ctx.model;
 		const errors: { source: UsageSource; message: string; cause?: unknown }[] = [];
-		const sources: UsageSource[] = isSparkCodexModel(model)
-			? ["codex-app-server", "pi-auth"]
-			: ["pi-auth", "codex-app-server"];
+		const nativeOpenAI = isNativeOpenAIModel(selectedModel);
+		if (nativeOpenAI && ctx.modelRegistry.isUsingOAuth?.(selectedModel) !== true) {
+			throw new Error(
+				"Native OpenAI subscription usage requires Pi's ChatGPT OAuth sign-in; OpenAI API-key usage does not expose ChatGPT quota windows.",
+			);
+		}
+		const sources: UsageSource[] = nativeOpenAI
+			? ["codex-app-server"]
+			: isSparkCodexModel(selectedModel)
+				? ["codex-app-server", "pi-auth"]
+				: ["pi-auth", "codex-app-server"];
 
 		for (const source of sources) {
 			try {
@@ -101,10 +125,10 @@ export const codexProvider: UsageProvider = {
 					source === "pi-auth"
 						? await queryViaPiAuth(ctx, timeoutMs)
 						: await queryViaCodexAppServer(timeoutMs);
-				if (codexProvider.selectSnapshot(report, model)) return report;
+				if (codexProvider.selectSnapshot(report, selectedModel)) return report;
 				errors.push({
 					source,
-					message: `${source} returned no displayable ${codexProvider.label(model)} rate-limit windows`,
+					message: `${source} returned no displayable ${codexProvider.label(selectedModel)} rate-limit windows`,
 				});
 			} catch (cause) {
 				errors.push({ source, message: errorMessage(cause), cause });
@@ -289,10 +313,16 @@ export function normalizeAppServerResponse(payload: Record<string, unknown>, cap
 		}
 	};
 
-	if (Array.isArray(payload.rateLimits)) {
-		for (const item of payload.rateLimits) addSnapshot(item, CODEX_USAGE_LIMIT_ID);
-	} else {
-		addSnapshot(payload.rateLimits, CODEX_USAGE_LIMIT_ID);
+	const rateLimitsByLimitId = payload.rateLimitsByLimitId;
+	if (rateLimitsByLimitId && typeof rateLimitsByLimitId === "object" && !Array.isArray(rateLimitsByLimitId)) {
+		for (const [limitId, item] of Object.entries(rateLimitsByLimitId)) addSnapshot(item, limitId);
+	}
+	if (snapshots.length === 0) {
+		if (Array.isArray(payload.rateLimits)) {
+			for (const item of payload.rateLimits) addSnapshot(item, CODEX_USAGE_LIMIT_ID);
+		} else {
+			addSnapshot(payload.rateLimits, CODEX_USAGE_LIMIT_ID);
+		}
 	}
 	if (snapshots.length === 0) {
 		throw new Error("codex app-server returned no displayable rate-limit windows.");

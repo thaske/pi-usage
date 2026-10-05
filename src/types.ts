@@ -71,6 +71,7 @@ export type ApiKeyHeadersResult = {
 export type QueryModelRegistry = {
 	getApiKeyForProvider?(provider: string): Promise<string | null | undefined>;
 	getApiKeyAndHeaders?(model: any): Promise<ApiKeyHeadersResult>;
+	isUsingOAuth?(model: any): boolean;
 	getAvailable?(): any[];
 	getAll?(): any[];
 };
@@ -88,7 +89,10 @@ export interface UsageProvider {
 	id: string;
 	/** Statusline label for the active model bucket ("codex", "spark", "zai"). */
 	label(model?: ProviderModel): string;
-	matchesModel(model: ProviderModel | undefined): boolean;
+	matchesModel(
+		model: ProviderModel | undefined,
+		context?: Pick<QueryContext, "modelRegistry">,
+	): boolean;
 	/** Pick the bucket that applies to the active model, if any. */
 	selectSnapshot(
 		report: UsageReport,

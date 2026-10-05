@@ -12,13 +12,24 @@ Shows the active model's quota as a bar with reset-countdown.
 
 | Provider     | Model match    | Windows                                                    |
 | ------------ | -------------- | ---------------------------------------------------------- |
-| OpenAI Codex | `openai-codex` | 5h (primary) + weekly (secondary); separate `spark` bucket |
+| OpenAI Codex | `openai-codex`; native `openai` with ChatGPT OAuth | 5h (primary) + weekly (secondary); separate `spark` bucket |
 | OpenCode Go  | `opencode-go`  | 5h rolling (primary) + weekly (secondary); monthly in `/usage` |
 | Z.ai         | `zai`          | 5h credits (primary) + weekly credits (secondary)          |
 
 OpenCode Go's plan meters three nested dollar budgets (5h rolling, weekly,
 monthly). The statusline renders the first two as a dual bar and `/usage`
 reports all three, including the monthly window.
+
+ChatGPT.app's usage UI reads its private `/wham/usage` endpoint (and
+`/wham/usage/stream`). Pi's native OpenAI OAuth token is issued for OpenAI
+inference and is not accepted by that endpoint. For native `openai` models,
+pi-usage instead queries `account/rateLimits/read` through the local
+`codex app-server`; the desktop app maps that RPC to `/v2/account/rate-limits`.
+This requires Pi's `openai` provider to be signed in with ChatGPT OAuth (API-key
+auth has no ChatGPT subscription quota) and a separately authenticated Codex
+CLI. Make sure both logins use the same ChatGPT account, since pi-usage cannot
+correlate the two credentials. The legacy `openai-codex` provider continues to
+use Pi's Codex auth directly.
 
 When OpenAI exposes only one Codex window (for example, a Pro account with
 weekly-only limits), pi-usage renders a single-row Braille bar and labels the
