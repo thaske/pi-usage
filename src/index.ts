@@ -53,7 +53,7 @@ const MAX_FAILED_REFRESHES = 5;
 type TimeoutHandle = ReturnType<typeof setTimeout> & { unref?: () => void };
 
 type CachedReport = {
-	providerId: string;
+	queryKey: string;
 	createdAt: number;
 	report: UsageReport;
 };
@@ -67,6 +67,14 @@ function activeProvider(
 
 function isActiveModel(model: ProviderModel | undefined, ctx?: ExtensionContext): boolean {
 	return activeProvider(model, ctx) !== undefined;
+}
+
+function queryScopeKey(
+	provider: UsageProvider,
+	ctx: ExtensionContext,
+	model: ProviderModel | undefined,
+): string {
+	return JSON.stringify([provider.id, provider.queryScope?.(model, ctx) ?? provider.id]);
 }
 
 function isStaleExtensionContextError(error: unknown): boolean {
@@ -119,7 +127,8 @@ function nextResetCountdownDelayMs(
 export default function piUsage(pi: ExtensionAPI) {
 	let cache: CachedReport | undefined;
 	let failedRefreshes = 0;
-	let inFlightUsageQuery: { providerId: string; promise: Promise<UsageQueryResult> } | undefined;
+	const inFlightUsageQueries = new Map<string, Promise<UsageQueryResult>>();
+	let statuslineQueryKey: string | undefined;
 	let statuslineBlinkTimer: TimeoutHandle | undefined;
 	let statuslineClearTimer: TimeoutHandle | undefined;
 	let statuslineCountdownTimer: TimeoutHandle | undefined;
@@ -128,7 +137,7 @@ export default function piUsage(pi: ExtensionAPI) {
 	let statuslineLoadingFrame = 0;
 	let statuslineLoadingProviderId: string | undefined;
 	let statuslineRequestId = 0;
-	let provisionalFullReport: { providerId: string; firstSeenAt: number } | undefined;
+	let provisionalFullReport: { queryKey: string; firstSeenAt: number } | undefined;
 	// Latest context handed to one of our handlers. Bus handlers receive no ctx,
 	// and provider queries need modelRegistry auth, so we remember the current one.
 	let latestCtx: ExtensionContext | undefined;
@@ -177,6 +186,7 @@ export default function piUsage(pi: ExtensionAPI) {
 
 	const clearUsageStatusline = (ctx: ExtensionContext) => {
 		statuslineRequestId += 1;
+		statuslineQueryKey = undefined;
 		clearStatuslineTimers();
 		ctx.ui.setStatus(STATUS_KEY, undefined);
 	};
@@ -269,11 +279,13 @@ export default function piUsage(pi: ExtensionAPI) {
 		provider: UsageProvider,
 		model: ProviderModel | undefined,
 	): Promise<UsageQueryResult> => {
-		if (inFlightUsageQuery?.providerId === provider.id) return inFlightUsageQuery.promise;
+		const queryKey = queryScopeKey(provider, ctx, model);
+		const existing = inFlightUsageQueries.get(queryKey);
+		if (existing) return existing;
 		const promise = queryUsage(ctx, provider, model).finally(() => {
-			if (inFlightUsageQuery?.promise === promise) inFlightUsageQuery = undefined;
+			if (inFlightUsageQueries.get(queryKey) === promise) inFlightUsageQueries.delete(queryKey);
 		});
-		inFlightUsageQuery = { providerId: provider.id, promise };
+		inFlightUsageQueries.set(queryKey, promise);
 		return promise;
 	};
 
@@ -290,8 +302,16 @@ export default function piUsage(pi: ExtensionAPI) {
 				return;
 			}
 
+			const queryKey = queryScopeKey(provider, ctx, model);
+			if (statuslineQueryKey !== queryKey) {
+				// Old countdown/blink callbacks must not redraw a different source's quota.
+				clearStatuslineTimers();
+				statuslineQueryKey = queryKey;
+				failedRefreshes = 0;
+				provisionalFullReport = undefined;
+			}
 			const usableCache =
-				cache && cache.providerId === provider.id && provider.selectSnapshot(cache.report, model)
+				cache && cache.queryKey === queryKey && provider.selectSnapshot(cache.report, model)
 					? cache
 					: undefined;
 			if (usableCache) {
@@ -310,7 +330,8 @@ export default function piUsage(pi: ExtensionAPI) {
 
 			const result = await queryCurrentUsage(ctx, provider, model);
 			if (requestId !== statuslineRequestId) return;
-			if (!provider.matchesModel(ctx.model as ProviderModel | undefined, ctx)) {
+			if (!provider.matchesModel(ctx.model as ProviderModel | undefined, ctx) ||
+				queryScopeKey(provider, ctx, ctx.model as ProviderModel | undefined) !== queryKey) {
 				clearUsageStatusline(ctx);
 				return;
 			}
@@ -318,7 +339,7 @@ export default function piUsage(pi: ExtensionAPI) {
 			if (!result.ok) {
 				failedRefreshes += 1;
 				const activeCache =
-					cache && cache.providerId === provider.id && provider.selectSnapshot(cache.report, model)
+					cache && cache.queryKey === queryKey && provider.selectSnapshot(cache.report, model)
 						? cache
 						: undefined;
 				if (!activeCache || failedRefreshes >= MAX_FAILED_REFRESHES) {
@@ -329,14 +350,14 @@ export default function piUsage(pi: ExtensionAPI) {
 				return;
 			}
 
-			const previousReport = cache?.providerId === provider.id ? cache.report : undefined;
+			const previousReport = cache?.queryKey === queryKey ? cache.report : undefined;
 			const previousWasFullyAvailable = previousReport
 				? isFullyAvailableReport(previousReport, provider, model)
 				: false;
 			if (isFullyAvailableReport(result.report, provider, model) && !previousWasFullyAvailable) {
 				const now = Date.now();
-				if (provisionalFullReport?.providerId !== provider.id) {
-					provisionalFullReport = { providerId: provider.id, firstSeenAt: now };
+				if (provisionalFullReport?.queryKey !== queryKey) {
+					provisionalFullReport = { queryKey, firstSeenAt: now };
 				}
 				if (now - provisionalFullReport.firstSeenAt < FULL_AVAILABILITY_CONFIRMATION_MS) {
 					scheduleStatuslineRefresh(ctx, PROVISIONAL_RETRY_MS);
@@ -351,7 +372,7 @@ export default function piUsage(pi: ExtensionAPI) {
 				: false;
 			failedRefreshes = 0;
 			provisionalFullReport = undefined;
-			cache = { providerId: provider.id, createdAt: Date.now(), report: result.report };
+			cache = { queryKey, createdAt: Date.now(), report: result.report };
 			setUsageStatusline(ctx, provider, result.report, { autoRefresh: true, blink, model });
 		} catch (error) {
 			if (isStaleExtensionContextError(error)) {
@@ -380,7 +401,7 @@ export default function piUsage(pi: ExtensionAPI) {
 
 	const announceQuotaProviders = () => {
 		pi.events.emit(QUOTA_PROVIDERS_CHANNEL, {
-			providers: PROVIDERS.map((provider) => provider.id),
+			providers: [...new Set(PROVIDERS.flatMap((provider) => provider.modelProviderIds ?? [provider.id]))],
 		});
 	};
 
@@ -401,7 +422,9 @@ export default function piUsage(pi: ExtensionAPI) {
 		const respond = (response: QuotaStatusResponse) => {
 			pi.events.emit(QUOTA_RESPONSE_CHANNEL, response);
 		};
-		const provider = PROVIDERS.find((candidate) => candidate.id === request.provider);
+		const provider = PROVIDERS.find((candidate) =>
+			(candidate.modelProviderIds ?? [candidate.id]).includes(request.provider),
+		);
 		if (!provider) {
 			respond({
 				requestId: request.requestId,
@@ -422,7 +445,15 @@ export default function piUsage(pi: ExtensionAPI) {
 			return;
 		}
 		try {
-			const model = request.model ?? (ctx.model as ProviderModel | undefined);
+			if (request.model && request.model.provider !== request.provider) {
+				throw new Error("Quota request model provider does not match the requested provider.");
+			}
+			const model = request.model ?? (ctx.model?.provider === request.provider
+				? ctx.model as ProviderModel
+				: { provider: request.provider, id: "" });
+			if (!provider.matchesModel(model, ctx)) {
+				throw new Error(`No usage provider matches ${request.provider} with the current authentication.`);
+			}
 			// Reuse the statusline's in-flight query so a concurrent refresh does
 			// not spawn a second provider request (for example codex app-server).
 			const result = await queryCurrentUsage(ctx, provider, model);
@@ -434,6 +465,9 @@ export default function piUsage(pi: ExtensionAPI) {
 					error: result.errors.map((error) => error.message).join("; "),
 				});
 				return;
+			}
+			if (!provider.selectSnapshot(result.report, model)) {
+				throw new Error("No matching quota windows in the response.");
 			}
 			respond({
 				requestId: request.requestId,
@@ -468,7 +502,7 @@ export default function piUsage(pi: ExtensionAPI) {
 				return;
 			}
 			ctx.ui.notify(`Querying ${provider.label(model)} usage…`, "info");
-			const result = await queryUsage(ctx, provider, model);
+			const result = await queryCurrentUsage(ctx, provider, model);
 			if (!result.ok) {
 				ctx.ui.notify(`usage: ${result.errors.map((error) => error.message).join("; ")}`, "warning");
 				return;
@@ -479,6 +513,8 @@ export default function piUsage(pi: ExtensionAPI) {
 				return;
 			}
 			const lines: string[] = [`${provider.label(model)}${snapshot.meta?.level ? ` (${snapshot.meta.level})` : ""}`];
+			const notice = provider.usageNotice?.(model);
+			if (notice) lines.push(notice);
 			const describe = (
 				fallbackName: string,
 				window: { usedPercent: number; resetAt?: number; windowLabel?: string } | undefined,
@@ -527,6 +563,7 @@ export default function piUsage(pi: ExtensionAPI) {
 	});
 
 	pi.on("session_shutdown", (_event, ctx) => {
+		latestCtx = undefined;
 		clearUsageStatusline(ctx);
 	});
 }

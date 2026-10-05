@@ -24,6 +24,14 @@ describe("codexProvider", () => {
 		expect(codexProvider.matchesModel(undefined)).toBe(false);
 	});
 
+	test("query scopes separate auth paths and buckets but share ordinary native models", () => {
+		const scope = (model: typeof nativeModel) => codexProvider.queryScope!(model, nativeOAuthContext);
+		expect(scope(nativeModel)).toBe(scope(nativeCodex));
+		expect(scope(nativeModel)).not.toBe(scope(regularCodex));
+		expect(scope(nativeModel)).not.toBe(scope(nativeSpark));
+		expect(scope(nativeSpark)).not.toBe(scope(sparkCodex));
+	});
+
 	test("does not query ChatGPT usage for native OpenAI API-key auth", async () => {
 		await expect(codexProvider.query({ model: nativeModel, ...nativeApiKeyContext }, nativeModel, 1000))
 			.rejects.toThrow("ChatGPT OAuth");
@@ -175,6 +183,34 @@ describe("normalizeAppServerResponse", () => {
 		expect(report.snapshots).toHaveLength(2);
 		expect(codexProvider.selectSnapshot(report, nativeCodex)?.primary?.usedPercent).toBe(45);
 		expect(codexProvider.selectSnapshot(report, nativeSpark)?.primary?.usedPercent).toBe(80);
+	});
+
+	test("preserves fallback Codex when the map contains only Spark", () => {
+		const report = normalizeAppServerResponse({
+			rateLimits: { primary: { usedPercent: 40 } },
+			rateLimitsByLimitId: { spark: { primary: { usedPercent: 80 } } },
+		}, Date.now());
+		expect(codexProvider.selectSnapshot(report, nativeModel)?.primary?.usedPercent).toBe(40);
+		expect(codexProvider.selectSnapshot(report, nativeSpark)?.primary?.usedPercent).toBe(80);
+	});
+
+	test("merges partial map windows over fallback windows for the same bucket", () => {
+		const report = normalizeAppServerResponse({
+			rateLimits: { limitId: "codex", primary: { usedPercent: 5 }, secondary: { usedPercent: 20 } },
+			rateLimitsByLimitId: { codex: { primary: { usedPercent: 45 } } },
+		}, Date.now());
+		expect(report.snapshots).toHaveLength(1);
+		expect(report.snapshots[0]?.primary?.usedPercent).toBe(45);
+		expect(report.snapshots[0]?.secondary?.usedPercent).toBe(20);
+	});
+
+	test("uses fallback windows when the map is empty or unusable", () => {
+		for (const rateLimitsByLimitId of [{}, null, { codex: { primary: {} } }]) {
+			const report = normalizeAppServerResponse({
+				rateLimits: { primary: { usedPercent: 40 } }, rateLimitsByLimitId,
+			}, Date.now());
+			expect(report.snapshots[0]?.primary?.usedPercent).toBe(40);
+		}
 	});
 
 	test("throws when the response has no windows", () => {

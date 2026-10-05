@@ -87,6 +87,12 @@ export type QueryContext = {
  */
 export interface UsageProvider {
 	id: string;
+	/** Model-provider ids accepted by the quota bus; defaults to [id]. */
+	modelProviderIds?: readonly string[];
+	/** Non-secret scope for cache/query sharing; defaults to the adapter id. */
+	queryScope?(model: ProviderModel | undefined, context: QueryContext): string;
+	/** Provider-specific attribution/caveats surfaced by /usage. */
+	usageNotice?(model: ProviderModel | undefined): string | undefined;
 	/** Statusline label for the active model bucket ("codex", "spark", "zai"). */
 	label(model?: ProviderModel): string;
 	matchesModel(

@@ -16,6 +16,11 @@
  *       { requestId, ok: true,  provider, label, exhausted } |
  *       { requestId, ok: false, provider, error }
  *
+ * Announced/requested provider ids identify model providers, not necessarily
+ * adapter ids. Support announcements do not imply configured authentication.
+ * Native OpenAI quota describes the Codex CLI account bucket, not a verified
+ * native-model inference limit. Consumers must preserve that distinction.
+ *
  * Ordering: extension factories all finish before `session_start`, and
  * extension loading is sequential, so a consumer that both listens for
  * `providers` and emits `providers:request` is guaranteed to learn the list
@@ -38,6 +43,7 @@ export type QuotaRequesterModel = {
 
 export type QuotaStatusRequest = {
 	requestId: string;
+	/** Model-provider id; must match model.provider when a model is supplied. */
 	provider: string;
 	model?: QuotaRequesterModel;
 };
@@ -59,12 +65,14 @@ export type QuotaStatusResponse =
 	  };
 
 export type QuotaProvidersEvent = {
+	/** Supported model-provider ids; eligibility is checked for each query. */
 	providers: string[];
 };
 
 /**
- * A provider reports quota as the consumed share (`usedPercent`), so any
- * window at 100% blocks new requests until it resets. OpenCode Go windows
+ * A provider reports quota as the consumed share (`usedPercent`); any window
+ * at 100% marks the reported bucket exhausted, not necessarily every model
+ * using that provider. OpenCode Go windows
  * that arrive as `status: "rate-limited"` are normalized to 100% by its
  * adapter, so they are covered here too.
  */

@@ -6,7 +6,9 @@
  * 2. codex-app-server — `codex app-server` RPC fallback
  *
  * Spark models prefer the app-server first because the backend payload
- * labels the spark bucket as an additional rate limit.
+ * labels the spark bucket as an additional rate limit. Native OpenAI OAuth
+ * models use only the separately authenticated Codex CLI account; that quota
+ * is not a verified model-specific inference limit.
  */
 
 import { createInterface } from "node:readline";
@@ -94,6 +96,16 @@ export function isSparkCodexModel(
 
 export const codexProvider: UsageProvider = {
 	id: CODEX_PROVIDER_ID,
+	modelProviderIds: [CODEX_PROVIDER_ID, OPENAI_PROVIDER_ID],
+	// Separate native CLI-only quota from legacy Pi-auth/fallback quota, and
+	// separate buckets whose query source preference or availability differs.
+	queryScope: (model, context) => {
+		const selectedModel = model ?? context.model;
+		return `${selectedModel?.provider ?? CODEX_PROVIDER_ID}:${isSparkCodexModel(selectedModel) ? SPARK_USAGE_LIMIT_ID : CODEX_USAGE_LIMIT_ID}`;
+	},
+	usageNotice: (model) => isNativeOpenAIModel(model)
+		? "Quota from the separately authenticated local Codex CLI account; not a verified limit for the active OpenAI model. Make sure the CLI is signed into the intended account."
+		: undefined,
 	label: (model) => (isSparkCodexModel(model) ? SPARK_USAGE_LIMIT_ID : CODEX_USAGE_LIMIT_ID),
 	matchesModel: (model, context) =>
 		model?.provider === CODEX_PROVIDER_ID ||
@@ -313,16 +325,16 @@ export function normalizeAppServerResponse(payload: Record<string, unknown>, cap
 		}
 	};
 
+	// Preserve fallback buckets/windows when the newer map is partial. Map
+	// entries override fallback windows for the same limit id.
+	if (Array.isArray(payload.rateLimits)) {
+		for (const item of payload.rateLimits) addSnapshot(item, CODEX_USAGE_LIMIT_ID);
+	} else {
+		addSnapshot(payload.rateLimits, CODEX_USAGE_LIMIT_ID);
+	}
 	const rateLimitsByLimitId = payload.rateLimitsByLimitId;
 	if (rateLimitsByLimitId && typeof rateLimitsByLimitId === "object" && !Array.isArray(rateLimitsByLimitId)) {
 		for (const [limitId, item] of Object.entries(rateLimitsByLimitId)) addSnapshot(item, limitId);
-	}
-	if (snapshots.length === 0) {
-		if (Array.isArray(payload.rateLimits)) {
-			for (const item of payload.rateLimits) addSnapshot(item, CODEX_USAGE_LIMIT_ID);
-		} else {
-			addSnapshot(payload.rateLimits, CODEX_USAGE_LIMIT_ID);
-		}
 	}
 	if (snapshots.length === 0) {
 		throw new Error("codex app-server returned no displayable rate-limit windows.");
